@@ -270,36 +270,80 @@ def lookup_item_by_id():
     # Create a new window
     item_lookup_window = tk.Toplevel(root)
     item_lookup_window.title("Lookup Item by ID")
-    item_lookup_window.geometry("800x600")
+    item_lookup_window.geometry("900x600")
 
-    # Add an entry widget for Item ID
+    # Entry field for Item ID
     ttk.Label(item_lookup_window, text="Enter Item ID:").pack(pady=10)
     item_id_entry = ttk.Entry(item_lookup_window, width=20)
     item_id_entry.pack(pady=5)
 
-    # Add a button to trigger the lookup
-    lookup_button = ttk.Button(item_lookup_window, text="Lookup", command=lambda: fetch_item_data(item_id_entry.get(), loot_table_tree, loot_drop_tree))
+    # Lookup button
+    lookup_button = ttk.Button(item_lookup_window, text="Lookup", command=lambda: fetch_item_data(item_id_entry.get(), item_tree))
     lookup_button.pack(pady=10)
 
-    # Add a frame for the Treeviews
-    tree_frame = ttk.Frame(item_lookup_window)
-    tree_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+    # Updated Treeview with NPC Name
+    item_tree = ttk.Treeview(
+        item_lookup_window,
+        columns=("Loot Table ID", "Loot Table Name", "Loot Drop ID", "Loot Drop Name", "NPC Name"),
+        show="headings"
+    )
+    item_tree.heading("Loot Table ID", text="Loot Table ID")
+    item_tree.heading("Loot Table Name", text="Loot Table Name")
+    item_tree.heading("Loot Drop ID", text="Loot Drop ID")
+    item_tree.heading("Loot Drop Name", text="Loot Drop Name")
+    item_tree.heading("NPC Name", text="NPC Name")
 
-    # Add a Treeview for Loot Tables
-    ttk.Label(tree_frame, text="Loot Tables", font=("Arial", 12, "bold")).pack()
-    loot_table_tree = ttk.Treeview(tree_frame, columns=("Loottable ID", "Name", "Min Cash", "Max Cash", "Avg Coin"), show="headings")
-    for col in loot_table_tree["columns"]:
-        loot_table_tree.heading(col, text=col)
-        loot_table_tree.column(col, width=120, stretch=True)
-    loot_table_tree.pack(fill=tk.BOTH, expand=True, pady=5)
+    item_tree.column("Loot Table ID", width=100, stretch=False)
+    item_tree.column("Loot Table Name", width=200, stretch=True)
+    item_tree.column("Loot Drop ID", width=100, stretch=False)
+    item_tree.column("Loot Drop Name", width=200, stretch=True)
+    item_tree.column("NPC Name", width=200, stretch=True)
 
-    # Add a Treeview for Loot Drops
-    ttk.Label(tree_frame, text="Loot Drops", font=("Arial", 12, "bold")).pack()
-    loot_drop_tree = ttk.Treeview(tree_frame, columns=("Lootdrop ID", "Name", "Item ID", "Chance"), show="headings")
-    for col in loot_drop_tree["columns"]:
-        loot_drop_tree.heading(col, text=col)
-        loot_drop_tree.column(col, width=120, stretch=True)
-    loot_drop_tree.pack(fill=tk.BOTH, expand=True, pady=5)
+    item_tree.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+    # Function to fetch and display item data
+    def fetch_item_data(item_id, tree):
+        # Clear previous results
+        tree.delete(*tree.get_children())
+
+        try:
+            # Fetch lootdrops that contain the item
+            cursor.execute("""
+                SELECT lde.lootdrop_id, ld.name
+                FROM lootdrop_entries lde
+                JOIN lootdrop ld ON lde.lootdrop_id = ld.id
+                WHERE lde.item_id = %s
+            """, (item_id,))
+            lootdrops = cursor.fetchall()
+
+            if not lootdrops:
+                status_var.set(f"No lootdrops found for item ID {item_id}.")
+                return
+
+            # Fetch loottables and associated NPCs for each lootdrop
+            for lootdrop_id, lootdrop_name in lootdrops:
+                cursor.execute("""
+                    SELECT lt.id, lt.name, COALESCE(GROUP_CONCAT(npc.name SEPARATOR ', '), 'None')
+                    FROM loottable_entries lte
+                    JOIN loottable lt ON lte.loottable_id = lt.id
+                    LEFT JOIN npc_types npc ON lt.id = npc.loottable_id
+                    WHERE lte.lootdrop_id = %s
+                    GROUP BY lt.id, lt.name
+                """, (lootdrop_id,))
+                loottables = cursor.fetchall()
+
+                # Insert data correctly into the tree
+                for loottable_id, loottable_name, npc_name in loottables:
+                    tree.insert(
+                        "", "end",
+                        values=(loottable_id, loottable_name, lootdrop_id, lootdrop_name, npc_name)
+                    )
+
+            status_var.set(f"Found {len(lootdrops)} lootdrops for item ID {item_id}.")
+        except mysql.connector.Error as err:
+            status_var.set(f"Error fetching data: {err}")
+
+
 
 def search_loottable_id():
     loottable_id = loottable_id_entry.get().strip()
@@ -1413,12 +1457,12 @@ lootdrop_mod_frame = ttk.Frame(lootdrop_frame, relief=tk.SUNKEN, borderwidth=2)
 lootdrop_mod_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=10)
 
 # Add Item to Lootdrop Button
-add_item_to_lootdrop_button = ttk.Button(lootdrop_mod_frame, text="Add Item to Lootdrop", command=add_item_to_lootdrop)
+add_item_to_lootdrop_button = ttk.Button(lootdrop_mod_frame, text="Add Random Item ID to selected Lootdrop", command=add_item_to_lootdrop)
 add_item_to_lootdrop_button.grid(row=1, column=0, pady=5)
 
 
 # Add a label for the text entry
-ttk.Label(lootdrop_mod_frame, text="Item ID:").grid(row=0, column=0, padx=5, pady=5)
+ttk.Label(lootdrop_mod_frame, text="------------> Item ID:").grid(row=2, column=0, padx=5, pady=5, sticky="e")
 
 # Add a text entry box
 item_id_entry = ttk.Entry(lootdrop_mod_frame)
@@ -1430,7 +1474,7 @@ add_specific_item_button = ttk.Button(
     text="Add Specific Item",
     command=add_specific_item_to_lootdrop
 )
-add_specific_item_button.grid(row=2, column=0, padx=5, pady=5)
+add_specific_item_button.grid(row=2, column=0, padx=5, pady=5, sticky="w")
 
 #
 ###END Loot Drop FRAME###
