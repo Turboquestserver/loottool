@@ -5,8 +5,8 @@ from tkinter import ttk
 try:  # Connect to MariaDB
     conn = mysql.connector.connect(  
         host="192.168.1.105",
-        user="######",
-        password="######",
+        user="eqemu",
+        password="eqemu",
         database="peq"
     )
     cursor = conn.cursor()
@@ -342,8 +342,6 @@ def lookup_item_by_id():
             status_var.set(f"Found {len(lootdrops)} lootdrops for item ID {item_id}.")
         except mysql.connector.Error as err:
             status_var.set(f"Error fetching data: {err}")
-
-
 
 def search_loottable_id():
     loottable_id = loottable_id_entry.get().strip()
@@ -1010,7 +1008,7 @@ def add_item_to_lootdrop():
                 lootdrop_id, item_id, item_charges, equip_item, chance, disabled_chance,
                 trivial_min_level, trivial_max_level, multiplier, npc_min_level, npc_max_level,
                 min_expansion, max_expansion, content_flags, content_flags_disabled
-            ) VALUES (%s, %s, 1, 1, 0.004, 0, 0, 0, 1, 0, 127, -1, -1, NULL, NULL)
+            ) VALUES (%s, %s, 1, 0, 5, 0, 0, 0, 1, 0, 127, -1, -1, NULL, NULL)
         """, (lootdrop_id, random_item_id))
 
         # Commit the transaction
@@ -1054,7 +1052,7 @@ def add_specific_item_to_lootdrop():
                 lootdrop_id, item_id, item_charges, equip_item, chance, disabled_chance,
                 trivial_min_level, trivial_max_level, multiplier, npc_min_level, npc_max_level,
                 min_expansion, max_expansion, content_flags, content_flags_disabled
-            ) VALUES (%s, %s, 1, 1, 0.004, 0, 0, 0, 1, 0, 127, -1, -1, NULL, NULL)
+            ) VALUES (%s, %s, 1, 0, 5, 0, 0, 0, 1, 0, 127, -1, -1, NULL, NULL)
         """, (lootdrop_id, item_id))
 
         # Commit the transaction
@@ -1149,7 +1147,7 @@ def add_lootdrop_to_loottable():
                 lootdrop_id, item_id, item_charges, equip_item, chance, disabled_chance,
                 trivial_min_level, trivial_max_level, multiplier, npc_min_level, npc_max_level,
                 min_expansion, max_expansion, content_flags, content_flags_disabled
-            ) VALUES (%s, %s, 1, 1, 0.004, 0, 0, 0, 1, 0, 127, -1, -1, NULL, NULL)
+            ) VALUES (%s, %s, 1, 0, 5, 0, 0, 0, 1, 0, 127, -1, -1, NULL, NULL)
         """, (next_lootdrop_id, placeholder_item_id))
 
         # Step 4: Find the next available loottable_id
@@ -1161,13 +1159,13 @@ def add_lootdrop_to_loottable():
         loottable_name = f"generated_loottable_{next_loottable_id}"
         cursor.execute("""
             INSERT INTO loottable (id, name, mincash, maxcash, avgcoin, done, min_expansion, max_expansion, content_flags, content_flags_disabled)
-            VALUES (%s, %s, 9, 30, 0, 0, -1, -1, NULL, NULL)
+            VALUES (%s, %s, 500, 5000, 0, 0, -1, -1, NULL, NULL)
         """, (next_loottable_id, loottable_name))
 
         # Step 6: Insert into loottable_entries table
         cursor.execute("""
             INSERT INTO loottable_entries (loottable_id, lootdrop_id, multiplier, droplimit, mindrop, probability)
-            VALUES (%s, %s, 1, 3, 1, 100)
+            VALUES (%s, %s, 1, 0, 1, 100)
         """, (next_loottable_id, next_lootdrop_id))
 
         # Commit the transaction
@@ -1210,13 +1208,13 @@ def add_new_lootdrop():
                 lootdrop_id, item_id, item_charges, equip_item, chance, disabled_chance,
                 trivial_min_level, trivial_max_level, multiplier, npc_min_level, npc_max_level,
                 min_expansion, max_expansion, content_flags, content_flags_disabled
-            ) VALUES (%s, %s, 1, 1, 0.004, 0, 0, 0, 1, 0, 127, -1, -1, NULL, NULL)
+            ) VALUES (%s, %s, 1, 0, 5, 0, 0, 0, 1, 0, 127, -1, -1, NULL, NULL)
         """, (next_lootdrop_id, placeholder_item_id))
 
         # Step 4: Insert into loottable_entries table
         cursor.execute("""
             INSERT INTO loottable_entries (loottable_id, lootdrop_id, multiplier, droplimit, mindrop, probability)
-            VALUES (%s, %s, 1, 3, 1, 100)
+            VALUES (%s, %s, 1, 0, 1, 100)
         """, (loottable_id, next_lootdrop_id))
 
         # Commit the transaction
