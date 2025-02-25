@@ -5,8 +5,8 @@ from tkinter import ttk
 try:  # Connect to MariaDB
     conn = mysql.connector.connect(  
         host="192.168.1.105",
-        user="eqemu",
-        password="eqemu",
+        user="######",
+        password="######",
         database="peq"
     )
     cursor = conn.cursor()
