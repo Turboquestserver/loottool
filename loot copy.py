@@ -1,6 +1,10 @@
 import mysql.connector
 import tkinter as tk
 from tkinter import ttk
+import sqlite3
+from PIL import Image, ImageTk
+import theme
+import os
 
 try:  # Connect to MariaDB
     conn = mysql.connector.connect(  
@@ -51,6 +55,19 @@ def clear_results():
     # Reset status message
     status_var.set("Cleared and Ready")
 
+def clear_search_results():
+    # Clear the zone entry box
+    zone_entry.delete(0, tk.END)
+    
+    # Clear the NPC name entry box
+    npc_name_entry.delete(0, tk.END)
+    
+    # Clear the loottable ID entry box
+    loottable_id_entry.delete(0, tk.END)
+
+    # Reset status message
+    status_var.set("Cleared and Ready")
+
 def sort_treeview(tree, col, reverse=False):
     """
     Universal sorting function for any treeview
@@ -92,7 +109,80 @@ def setup_treeview_sorting(tree):
     for col in tree["columns"]:
         tree.heading(col, text=col, command=lambda c=col: sort_treeview(tree, c))
 
-def find_unused_ids():  # Add the find_unused_ids function to your existing code
+def create_db():
+    conn = sqlite3.connect('notes.db')
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS notes
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, type TEXT, content TEXT)''')
+    conn.commit()
+    conn.close()
+
+def save_note(name, note_type, content):
+    conn = sqlite3.connect('notes.db')
+    c = conn.cursor()
+    c.execute("INSERT INTO notes (name, type, content) VALUES (?, ?, ?)",
+              (name, note_type, content))
+    conn.commit()
+    conn.close()
+
+def load_notes(tree):
+    conn = sqlite3.connect('notes.db')
+    c = conn.cursor()
+    c.execute("SELECT * FROM notes")
+    rows = c.fetchall()
+    for row in rows:
+        tree.insert("", "end", values=row)
+    conn.close()
+
+def open_notes_window():
+    notes_window = tk.Toplevel()
+    notes_window.title("Notes")
+
+    # Top section
+    top_frame = ttk.Frame(notes_window)
+    top_frame.pack(pady=10)
+
+    ttk.Label(top_frame, text="Name:").grid(row=0, column=0, padx=5, pady=5)
+    name_entry = ttk.Entry(top_frame, width=30)
+    name_entry.grid(row=0, column=1, padx=5, pady=5)
+
+    ttk.Label(top_frame, text="Type:").grid(row=1, column=0, padx=5, pady=5)
+    type_combobox = ttk.Combobox(top_frame, values=["Loot Table", "Loot Drop", "Item ID", "NPC ID"])
+    type_combobox.grid(row=1, column=1, padx=5, pady=5)
+
+    def clear_fields():
+        name_entry.delete(0, tk.END)
+        type_combobox.set("")
+
+    def save_note_to_db():
+        name = name_entry.get()
+        note_type = type_combobox.get()
+        content = "Sample content"  # Replace with actual content input if needed
+        save_note(name, note_type, content)
+        clear_fields()
+        refresh_treeview()
+
+    ttk.Button(top_frame, text="Clear", command=clear_fields).grid(row=2, column=0, padx=5, pady=5)
+    ttk.Button(top_frame, text="Save", command=save_note_to_db).grid(row=2, column=1, padx=5, pady=5)
+
+    # Bottom section
+    bottom_frame = ttk.Frame(notes_window)
+    bottom_frame.pack(pady=10)
+
+    columns = ("ID", "Name", "Type", "Content")
+    tree = ttk.Treeview(bottom_frame, columns=columns, show="headings")
+    for col in columns:
+        tree.heading(col, text=col)
+    tree.pack()
+
+    def refresh_treeview():
+        for row in tree.get_children():
+            tree.delete(row)
+        load_notes(tree)
+
+    refresh_treeview()
+
+def find_unused_ids():
     loottable_query = """
         WITH RECURSIVE number_sequence AS (
             SELECT 1 AS id
@@ -151,6 +241,13 @@ def find_unused_ids():  # Add the find_unused_ids function to your existing code
         unused_loottable_label.config(text=", ".join(unused_loottable_ids))
         unused_lootdrop_label.config(text=", ".join(unused_lootdrop_ids))
 
+        # Extract the first unused loottable and lootdrop IDs
+        first_unused_loottable_id = unused_loottable_ids[0]
+        first_unused_lootdrop_id = unused_lootdrop_ids[0]
+
+        # Update the label text with the first unused IDs
+        ttk.Label(find_unused_frame, text=f"new loot table ID: {first_unused_loottable_id} with lootdrop ID: {first_unused_lootdrop_id}").grid(row=6, column=1, sticky=tk.W)
+
     except mysql.connector.Error as err:
         tk.messagebox.showerror("Database Error", f"Error: {err}")
 
@@ -198,10 +295,8 @@ def search_zone():
         npc_types.loottable_id, npc_types.npc_spells_id, npc_types.npc_faction_id,
         npc_types.mindmg, npc_types.maxdmg, npc_types.npcspecialattks, npc_types.special_abilities, 
         npc_types.MR, npc_types.CR, npc_types.DR, npc_types.FR, npc_types.PR, npc_types.AC,
-        npc_types.attack_speed, npc_types.attack_delay, npc_types.STR, npc_types.STA, npc_types.DEX,
-        npc_types.AGI, npc_types._INT, npc_types.WIS, npc_types.CHA, npc_types.ATK, npc_types.accuracy, 
-        npc_types.avoidance, npc_types.slow_mitigation, npc_types.maxlevel, npc_types.private_corpse,
-        npc_types.skip_global_loot, npc_types.always_aggro, npc_types.exp_mod
+        npc_types.attack_delay, npc_types.STR, npc_types.STA, npc_types.DEX,
+        npc_types.AGI, npc_types._INT, npc_types.WIS, npc_types.maxlevel, npc_types.skip_global_loot, npc_types.exp_mod
 
         FROM spawn2
         JOIN spawnentry ON spawn2.spawngroupID = spawnentry.spawngroupID
@@ -240,9 +335,7 @@ def search_npc_name():
                 id, name, level, race, class, bodytype, hp, mana,
                 gender, texture, helmtexture, size, loottable_id, npc_spells_id, npc_faction_id,
                 mindmg, maxdmg, npcspecialattks, special_abilities, MR, CR, DR, FR, PR, AC,
-                attack_speed, attack_delay, STR, STA, DEX, AGI, _INT, WIS,
-                CHA, ATK, accuracy, avoidance, slow_mitigation, maxlevel,
-                private_corpse, skip_global_loot, always_aggro, exp_mod
+                attack_delay, STR, STA, DEX, AGI, _INT, WIS, maxlevel, skip_global_loot, exp_mod
         FROM 
             npc_types
         WHERE 
@@ -419,9 +512,8 @@ def search_loottable_id():
             SELECT id, name, level, race, class, bodytype, hp, mana,
                    gender, texture, helmtexture, size, loottable_id, npc_spells_id, npc_faction_id,
                    mindmg, maxdmg, npcspecialattks, special_abilities, MR, CR, DR, FR, PR, AC,
-                   attack_speed, attack_delay, STR, STA, DEX, AGI, _INT, WIS,
-                   CHA, ATK, accuracy, avoidance, slow_mitigation, maxlevel,
-                   private_corpse, skip_global_loot, always_aggro, exp_mod
+                   attack_delay, STR, STA, DEX, AGI, _INT, WIS,
+                   maxlevel, skip_global_loot, exp_mod
             FROM npc_types
             WHERE loottable_id = %s
         """
@@ -443,12 +535,14 @@ def on_npc_select(event):
     
     npc_data = npc_tree.item(selected_item[0], "values")
     loottable_id = npc_data[12]  # 12th column is loottable_id
-
+    
     # Clear previous results in both trees
     for item in loot_tree.get_children():
         loot_tree.delete(item)
     for item in loot_tree2.get_children():
         loot_tree2.delete(item)
+    for widget in image_frame.winfo_children():
+        widget.destroy()
 
     if not loottable_id:
         # Clear loot_mod_frame if no loottable_id
@@ -459,8 +553,6 @@ def on_npc_select(event):
         avgcoin_entry.delete(0, tk.END)
         minexpac_entry.delete(0, tk.END)
         maxexpac_entry.delete(0, tk.END)
-
-
         return
 
     # Fetch loottable details
@@ -487,7 +579,6 @@ def on_npc_select(event):
         maxexpac_entry.delete(0, tk.END)
         maxexpac_entry.insert(0, loottable_data[5])
         
-
     else:
         loot_id_var.set("Loot Table ID: ")
         mincash_entry.delete(0, tk.END)
@@ -518,6 +609,293 @@ def on_npc_select(event):
         loot_tree.selection_set(first_lootdrop)
         loot_tree.focus(first_lootdrop)
         on_lootdrop_select(None)  # Trigger the lootdrop selection event
+
+    # Default image path
+    default_image_path = "images/other/default.jpg"  # Ensure this file exists
+
+    # Create the image frame
+    image_frame2 = ttk.Frame(image_frame)  # Replace with your actual frame for the image
+    image_frame2.grid()
+
+    # Construct the image filename based on npc_data[3], [8], [9], and [10]
+    image_filename = f"images/raceimages/{npc_data[3]}_{npc_data[8]}_{npc_data[9]}_{npc_data[10]}.jpg"
+
+    # Try to load the NPC image, fallback to default if not found
+    if not os.path.exists(image_filename):
+        image_filename = default_image_path
+
+    try:
+        # Load and display the image
+        img = Image.open(image_filename)
+        img = img.resize((95, 125), Image.Resampling.LANCZOS)
+        img_tk = ImageTk.PhotoImage(img)
+
+        image_label = ttk.Label(image_frame2, image=img_tk)
+        image_label.image = img_tk  # Keep reference
+        image_label.grid()
+    except Exception as e:
+        print(f"Error loading image: {e}")
+
+def on_item_select(event):
+    selected_loot_item = loot_tree2.selection()
+    if not selected_loot_item:
+        return
+   
+    item_id = loot_tree2.item(selected_loot_item, "values")[0]
+   
+    # Clear previous item image and stats
+    for item in canvas.find_all():
+        canvas.delete(item)
+    
+    # Redraw the background image
+    canvas.create_image(0, 0, anchor="nw", image=bg_image)
+   
+    query = """
+        SELECT DISTINCT Name, aagi, ac, accuracy, acha, adex, aint, asta, astr, attack, augrestrict,  
+               augtype, avoidance, awis, bagsize, bagslots, bagtype, bagwr, banedmgamt, banedmgraceamt, 
+               banedmgbody, banedmgrace, classes, color, combateffects, extradmgskill, extradmgamt, cr, damage, 
+               damageshield, deity, delay, dotshielding, dr, elemdmgtype, elemdmgamt, endur, fr, fvnodrop, 
+               haste, hp, regen, icon, itemclass, itemtype, lore, loregroup, magic, mana, manaregen, enduranceregen, mr, nodrop, norent, pr, races, 
+               `range`, reclevel, recskill, reqlevel, shielding, size, skillmodtype, skillmodvalue, 
+               slots, clickeffect, spellshield, strikethrough, stunresist, weight, attuneable, svcorruption, skillmodmax,
+               heroic_str, heroic_int, heroic_wis, heroic_agi, heroic_dex, 
+               heroic_sta, heroic_cha, heroic_pr, heroic_dr, heroic_fr, 
+               heroic_cr, heroic_mr, heroic_svcorrup, healamt, spelldmg, clairvoyance, backstabdmg
+        FROM items
+        WHERE id = %s
+    """
+    cursor.execute(query, (item_id,))
+    item_data = cursor.fetchone()
+    
+    if item_data:
+        columns = [
+            "Name", "aagi", "ac", "accuracy", "acha", "adex", "aint", "asta", "astr", "attack", "augrestrict",  
+            "augtype", "avoidance", "awis", "bagsize", "bagslots", "bagtype", "bagwr", "banedmgamt", "banedmgraceamt", 
+            "banedmgbody", "banedmgrace", "classes", "color", "combateffects", "extradmgskill", "extradmgamt", "cr", "damage", 
+            "damageshield", "deity", "delay", "dotshielding", "dr", "elemdmgtype", "elemdmgamt", "endur", "fr", "fvnodrop", 
+            "haste", "hp", "regen", "icon", "itemclass", "itemtype", "lore", "loregroup", "magic", "mana", "manaregen", "enduranceregen", "mr", "nodrop", "norent", "pr", "races", 
+            "range", "reclevel", "recskill", "reqlevel", "shielding", "size", "skillmodtype", "skillmodvalue", 
+            "slots", "clickeffect", "spellshield", "strikethrough", "stunresist", "weight", "attuneable", "svcorruption", "skillmodmax",
+            "heroic_str", "heroic_int", "heroic_wis", "heroic_agi", "heroic_dex", 
+            "heroic_sta", "heroic_cha", "heroic_pr", "heroic_dr", "heroic_fr", 
+            "heroic_cr", "heroic_mr", "heroic_svcorrup", "healamt", "spelldmg", "clairvoyance", "backstabdmg"
+        ]
+       
+        item_stats = dict(zip(columns, item_data))
+        
+        # Process special fields
+        
+        # Handle icon - display item image
+        icon_id = item_stats.get("icon")
+        if icon_id:
+            try:
+                # Load icon image based on icon_id
+                icon_path = f"images/icons/item_{icon_id}.gif"  # Adjust path format as needed
+                item_icon = Image.open(icon_path)
+                item_photo = ImageTk.PhotoImage(item_icon)
+                
+                # Save reference to prevent garbage collection
+                # You need to keep this reference alive
+                canvas.item_photo = item_photo  
+                
+                # Display icon at specific pixel location
+                canvas.create_image(28, 50, image=item_photo)
+            except Exception as e:
+                print(f"Could not load icon: {e}")
+        
+        # Handle classes bitmask
+        classes_bitmask = item_stats.get("classes")
+        if classes_bitmask is not None:
+            # Define class mapping - adjust to match your game's classes
+            class_map = {
+                1: "WAR", 2: "CLR", 4: "PAL", 8: "RNG",
+                16: "SK", 32: "DRU", 64: "MON", 128: "BRD",
+                256: "ROG", 512: "SHM", 1024: "NEC",
+                2048: "WIZ", 4096: "MAG", 8192: "ENC", 65535: "ALL"
+            }
+        
+            # Check if the bitmask matches the ALL value
+            if classes_bitmask == 65535:
+                item_stats["classes"] = "ALL"
+            else:
+                # Convert bitmask to list of class names
+                class_names = []
+                for bit_value, class_name in class_map.items():
+                    if bit_value != 65535 and classes_bitmask & bit_value:
+                        class_names.append(class_name)
+                
+                # Replace the bitmask value with readable class names
+                item_stats["classes"] = ", ".join(class_names)
+        
+        # Handle races bitmask similarly
+        races_bitmask = item_stats.get("races")
+        if races_bitmask is not None:
+            # Define race mapping - adjust to match your game's races
+            race_map = {
+                1: "HUM", 2: "BAR", 4: "ERU", 8: "WEF",
+                16: "HIE", 32: "DRK", 64: "HEL", 128: "DWF",
+                256: "TRL", 512: "OGR", 1024: "HLF", 2048: "GME", 65535: "ALL"
+            }
+        
+            # Check if the bitmask matches the ALL value
+            if races_bitmask == 65535:
+                item_stats["races"] = "ALL"
+            else:
+                # Convert bitmask to list of race names
+                race_names = []
+                for bit_value, race_name in race_map.items():
+                    if bit_value != 65535 and races_bitmask & bit_value:
+                        race_names.append(race_name)
+                
+                # Replace the bitmask value with readable race names
+                item_stats["races"] = ", ".join(race_names)
+        
+        # Define exact pixel positions and custom formatting for each individual stat
+        # Format: {
+        #   stat_name: {
+        #     "x": x_position, 
+        #     "y": y_position, 
+        #     "color": color, 
+        #     "font": font,
+        #     "label": custom_label,  # Optional custom label
+        #     "format": format_function  # Optional function to format the value
+        #   }
+        # }
+        stat_positions = {
+            "Name": {
+                "x": 150, "y": 3, 
+                "color": "white", 
+                "font": ("Arial", 10),
+                "label": None  # No label for Name
+            },
+            "classes": {
+                "x": 55, "y": 44, 
+                "color": "skyblue", 
+                "font": ("Arial", 9),
+                "label": "Class"  # Singular form
+            },
+            "races": {
+                "x": 55, "y": 60, 
+                "color": "skyblue", 
+                "font": ("Arial", 9),
+                "label": "Race"  # Singular form
+            },
+            
+            # Add more stats with custom formatting as needed
+        }
+        
+        # Process the standard stats first
+        for stat_name, config in stat_positions.items():
+            # Skip the special properties we'll handle separately
+            if stat_name in ["magic", "loregroup", "nodrop", "fvnodrop", "norent", "attunable"]:
+                continue
+
+            if stat_name in item_stats and item_stats[stat_name] is not None:
+                value = item_stats[stat_name]
+
+                # Apply custom formatting if provided
+                if "format" in config:
+                    formatted_value = config["format"](value)
+                    if not formatted_value:
+                        continue
+                    value = formatted_value
+                elif value == "":
+                    continue
+                
+                # Determine display text based on label configuration
+                if config.get("label") is None:
+                    stat_text = f"{value}"
+                elif config.get("label") == "":
+                    continue
+                else:
+                    stat_text = f"{config['label']}: {value}"
+
+                # Create text at the exact position
+                canvas.create_text(
+                    config["x"], 
+                    config["y"], 
+                    text=stat_text, 
+                    fill=config["color"], 
+                    anchor="nw", 
+                    font=config["font"]
+                )
+
+        # Now handle the special property row (magic, lore, nodrop)
+        # Set the row position
+        row_y = 28
+        base_x = 55
+        spacing = 40
+
+        # Define property details for the special row
+        property_row_details = {
+            "magic": {
+                "color": "white", 
+                "font": ("Arial", 10),
+                "format": lambda value: "Magic" if value == 1 else ""
+            },
+            "loregroup": {
+                "color": "white", 
+                "font": ("Arial", 10),
+                "format": lambda value: " Lore" if value == -1 else ""
+            },
+            "nodrop": {
+                "color": "white", 
+                "font": ("Arial", 10),
+                "format": lambda value: "No Drop" if value == 0 else ""
+            },
+            "fvnodrop": {
+                "color": "white", 
+                "font": ("Arial", 10),
+                "format": lambda value: "FV No Drop" if value == 1 else ""
+            },
+            "norent": {
+                "color": "white", 
+                "font": ("Arial", 10),
+                "format": lambda value: "No Rent" if value == 0 else ""
+            },
+            "attuneable": {
+                "color": "white", 
+                "font": ("Arial", 10),
+                "format": lambda value: "Attune" if value == 1 else ""
+            }
+        }
+
+        items_placed = 0
+        # Process special properties in order
+        for prop_name in ["magic", "loregroup", "nodrop", "fvnodrop", "norent", "attuneable"]:
+            config = property_row_details[prop_name]
+
+            if prop_name in item_stats and item_stats[prop_name] is not None:
+                value = item_stats[prop_name]
+
+                # Apply custom formatting
+                if "format" in config:
+                    formatted_value = config["format"](value)
+                    # Skip empty formatted values
+                    if not formatted_value:
+                        continue
+                    value = formatted_value
+                # Skip empty values
+                elif value == "":
+                    continue
+
+                current_x = base_x + (items_placed * spacing)
+
+                # Create text at the current position
+                canvas.create_text(
+                    current_x, 
+                    row_y, 
+                    text=value,  # Just show the formatted value
+                    fill=config["color"], 
+                    anchor="nw", 
+                    font=config["font"]
+                )
+
+                # Move x position for next item
+                items_placed += 1
+
+
+
 
 def on_npc_edit(event):
     # Get the clicked item and column
@@ -567,48 +945,39 @@ def on_npc_edit(event):
             column_to_field = {
                 "NPC ID": "id",
                 "Name": "name",
-                "Level": "level",
+                "Lvl": "level",
                 "Race": "race",
                 "Class": "class",
-                "Body Type": "bodytype",
+                "Body": "bodytype",
                 "HP": "hp",
                 "Mana": "mana",
                 "Gender": "gender",
-                "texture": "texture",
-                "helmtexture": "helmtexture",
-                "size": "size",
-                "loottable_id": "loottable_id",
-                "npc_spells_id": "npc_spells_id",
-                "npc_faction_id": "npc_faction_id",
-                "mindmg": "mindmg",
-                "maxdmg": "maxdmg",
-                "npcspecialattks": "npcspecialattks",
-                "special_abilities": "special_abilities",
-                "runspeed": "runspeed",
+                "Texture": "texture",
+                "Helmtexture": "helmtexture",
+                "Size": "size",
+                "Loottable ID": "loottable_id",
+                "Spells ID": "npc_spells_id",
+                "Faction ID": "npc_faction_id",
+                "Mindmg": "mindmg",
+                "Maxdmg": "maxdmg",
+                "Npcspecialattks": "npcspecialattks",
+                "Special Abilities": "special_abilities",
                 "MR": "MR",
                 "CR": "CR",
                 "DR": "DR",
                 "FR": "FR",
                 "PR": "PR",
                 "AC": "AC",
-                "attack_speed": "attack_speed",
-                "attack_delay": "attack_delay",
+                "Attack Delay": "attack_delay",
                 "STR": "STR",
                 "STA": "STA",
                 "DEX": "DEX",
                 "AGI": "AGI",
                 "_INT": "_INT",
                 "WIS": "WIS",
-                "CHA": "CHA",
-                "ATK": "ATK",
-                "accuracy": "accuracy",
-                "avoidance": "avoidance",
-                "slow_mitigation": "slow_mitigation",
-                "maxlevel": "maxlevel",
-                "private_corpse": "private_corpse",
-                "skip_global_loot": "skip_global_loot",
-                "always_aggro": "always_aggro",
-                "exp_mod": "exp_mod"
+                "Maxlevel": "maxlevel",
+                "Skip Global Loot": "skip_global_loot",
+                "Exp Mod": "exp_mod"
             }
             
             # Only allow editing if column is in our mapping
@@ -805,15 +1174,15 @@ def on_lootdrop_edit(event):
             column_to_field = {
                 "Item ID": "item_id",
                 "Charges": "item_charges",
-                "Equip Item": "equip_item",
+                "Equip": "equip_item",
                 "Chance": "chance",
-                "Trivial Min Level": "trivial_min_level",
-                "Trivial Max Level": "trivial_max_level",
+                "Triv Min Lvl": "trivial_min_level",
+                "Triv Max Lvl": "trivial_max_level",
                 "Multiplier": "multiplier",
-                "NPC Min Level": "npc_min_level",
-                "NPC Max Level": "npc_max_level",
-                "Min Expansion": "min_expansion",
-                "Max Expansion": "max_expansion"
+                "NPC Min Lvl": "npc_min_level",
+                "NPC Max Lvl": "npc_max_level",
+                "Min Xpac": "min_expansion",
+                "Max Xpac": "max_expansion"
             }
             
             # Only allow editing if column is in our mapping
@@ -1068,6 +1437,43 @@ def add_specific_item_to_lootdrop():
         conn.rollback()  # Rollback in case of error
         status_var.set(f"Error: {err}")
 
+def remove_item_from_lootdrop():
+    try:
+        # Step 1: Get the currently selected lootdrop_id
+        selected_lootdrop = loot_tree.selection()
+        if not selected_lootdrop:
+            status_var.set("No lootdrop selected. Please select a lootdrop.")
+            return
+
+        lootdrop_id = loot_tree.item(selected_lootdrop[0], "values")[0]  # Lootdrop ID is in the first column
+
+        # Step 2: Get the selected item from the lootdrop entries treeview
+        selected_item = loot_tree2.selection()
+        if not selected_item:
+            status_var.set("No item selected. Please select an item to remove.")
+            return
+
+        item_id = loot_tree2.item(selected_item, "values")[0]  # Item ID is in the first column
+
+        # Step 3: Delete the item from the lootdrop_entries table
+        cursor.execute("""
+            DELETE FROM lootdrop_entries
+            WHERE lootdrop_id = %s AND item_id = %s
+        """, (lootdrop_id, item_id))
+
+        # Commit the transaction
+        conn.commit()
+
+        # Step 4: Refresh the lootdrop entries in the UI
+        on_lootdrop_select(selected_lootdrop)
+
+        # Update the status bar
+        status_var.set(f"Removed item {item_id} from lootdrop {lootdrop_id}.")
+
+    except mysql.connector.Error as err:
+        conn.rollback()  # Rollback in case of error
+        status_var.set(f"Error: {err}")
+
 def fetch_item_data(item_id, loot_table_tree, loot_drop_tree):
     try:
         # Clear existing data in the Treeviews
@@ -1228,6 +1634,89 @@ def add_new_lootdrop():
         conn.rollback()  # Rollback in case of error
         tk.messagebox.showerror("Database Error", f"Error: {err}")
 
+def remove_selected_lootdrop():
+    try:
+        # Get the selected item from the treeview
+        selected_item = loot_tree.selection()
+        if not selected_item:
+            status_var.set("No lootdrop selected.")
+            return
+
+        # Get the lootdrop_id from the selected item
+        item_values = loot_tree.item(selected_item, "values")
+        lootdrop_id = item_values[0]  # LootDrop ID is in the first column
+
+        # Get the loottable_id from loot_id_var
+        loottable_id = loot_id_var.get().split(": ")[1]  # Extract the ID from the label
+
+        # Step 1: Delete from loottable_entries table
+        cursor.execute("""
+            DELETE FROM loottable_entries
+            WHERE loottable_id = %s AND lootdrop_id = %s
+        """, (loottable_id, lootdrop_id))
+
+        # Commit the transaction
+        conn.commit()
+
+        # Refresh the loot_tree to reflect the changes
+        on_npc_select(None)  # Re-trigger the NPC selection to refresh the loot table
+
+        status_var.set(f"Removed lootdrop {lootdrop_id} from loottable {loottable_id}.")
+    except mysql.connector.Error as err:
+        conn.rollback()  # Rollback in case of error
+        tk.messagebox.showerror("Database Error", f"Error: {err}")
+
+def add_existing_lootdrop_to_loottable():
+    try:
+        # Get the currently selected loottable_id from loot_id_var
+        loottable_id = loot_id_var.get().split(": ")[1]  # Extract the ID from the label
+        if not loottable_id:
+            status_var.set("No loottable selected.")
+            return
+
+        # Get the lootdrop_id from the text entry widget
+        lootdrop_id = lootdrop_id_entry.get()
+        if not lootdrop_id:
+            status_var.set("No lootdrop ID entered.")
+            return
+
+        # Convert the lootdrop_id to an integer
+        lootdrop_id = int(lootdrop_id)
+
+        # Check if the lootdrop_id exists in the lootdrop table
+        cursor.execute("SELECT id FROM lootdrop WHERE id = %s", (lootdrop_id,))
+        if not cursor.fetchone():
+            status_var.set(f"Lootdrop ID {lootdrop_id} does not exist.")
+            return
+
+        # Check if the lootdrop is already linked to the loottable
+        cursor.execute("""
+            SELECT lootdrop_id FROM loottable_entries 
+            WHERE loottable_id = %s AND lootdrop_id = %s
+        """, (loottable_id, lootdrop_id))
+        if cursor.fetchone():
+            status_var.set(f"Lootdrop ID {lootdrop_id} is already linked to this loottable.")
+            return
+
+        # Step 2: Insert into loottable_entries table
+        cursor.execute("""
+            INSERT INTO loottable_entries (loottable_id, lootdrop_id, multiplier, droplimit, mindrop, probability)
+            VALUES (%s, %s, 1, 0, 1, 100)
+        """, (loottable_id, lootdrop_id))
+
+        # Commit the transaction
+        conn.commit()
+
+        # Refresh the loot_tree to show the updated loottable
+        on_npc_select(None)  # Re-trigger the NPC selection to refresh the loot table
+
+        status_var.set(f"Added existing lootdrop {lootdrop_id} to loottable {loottable_id}.")
+    except ValueError:
+        status_var.set("Invalid lootdrop ID. Please enter a valid integer.")
+    except mysql.connector.Error as err:
+        conn.rollback()  # Rollback in case of error
+        tk.messagebox.showerror("Database Error", f"Error: {err}")
+
 def refresh_lootdrop_entries(lootdrop_id):
     # Clear the current entries in the lootdrop treeview
     for row in loot_tree2.get_children():
@@ -1248,26 +1737,18 @@ def refresh_lootdrop_entries(lootdrop_id):
 # Define the root window
 root = tk.Tk()
 root.title("NPC Loot Tool")
-root.geometry("1600x1100")
-
-# Apply a ttk theme
-style = ttk.Style(root)
-style.theme_use("clam")  # Options: 'clam', 'alt', 'default', 'vista', etc.
-
-# Add and Define status_var
-status_var = tk.StringVar(value="Ready")
-status_bar = ttk.Label(root, textvariable=status_var)
-status_bar.grid(row=4, column=0, sticky="w")  # Use grid for status_bar
+root.geometry("1400x850")
+style = theme.set_dark_theme(root)
 
 ## BEGIN TOP FRAME ## Search and Info Frame
 ##      Three Sub-Frames -> Search Boxes (search_frame), Unused IDs (find_unused_frame), Utilities (utilities_frame)
 
-top_root = ttk.Frame(root, relief=tk.SUNKEN, borderwidth=2)
-top_root.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+top_root = ttk.Frame(root, relief=tk.SUNKEN, borderwidth=1)
+top_root.grid(row=0, column=0, padx=5, pady=5, sticky="w")
 
 # Search Frame
 search_frame = ttk.Frame(top_root, relief=tk.SUNKEN, borderwidth=2)
-search_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+search_frame.grid(row=0, column=0, padx=5, pady=5)
 
 # Zone Search
 ttk.Label(search_frame, text="Enter Zone Shortname:").grid(row=0, column=0, sticky=tk.W)
@@ -1291,8 +1772,12 @@ search_loottable_button = ttk.Button(search_frame, text="Search Loottable", comm
 search_loottable_button.grid(row=2, column=2, padx=5, pady=5)
 
 # Clear Button
-clear_button = ttk.Button(search_frame, text="Clear", command=clear_results)
-clear_button.grid(row=3, column=0, columnspan=3, pady=5)
+
+clear_button = ttk.Button(search_frame, text="Clear All Windows", command=clear_results)
+clear_button.grid(row=3, column=0, columnspan=2, pady=5,padx=20)
+
+clear_button = ttk.Button(search_frame, text="Clear Search Windows", command=clear_search_results)
+clear_button.grid(row=3, column=2, pady=5, padx=5)
 
 #
 ###END SEARCH FRAME###
@@ -1301,41 +1786,54 @@ clear_button.grid(row=3, column=0, columnspan=3, pady=5)
 #
 
 find_unused_frame = ttk.Frame(top_root, relief=tk.SUNKEN, borderwidth=2)
-find_unused_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+find_unused_frame.grid(row=0, column=1, padx=5, pady=5, sticky="nsew")
 
-ttk.Label(find_unused_frame).grid(row=0, column=0)
-find_unused_button = ttk.Button(find_unused_frame, text="Find Unused IDs", command=find_unused_ids)
-find_unused_button.grid(row=1, column=0, pady=5)
+ttk.Label(find_unused_frame, text="Unused IDs").grid(row=0, column=0, columnspan=2)
+find_unused_button = ttk.Button(find_unused_frame, text="Refresh", command=find_unused_ids)
+find_unused_button.grid(row=0, column=1, pady=5)
 
-ttk.Label(find_unused_frame, text="Unused Loottable IDs:").grid(row=2, column=0, sticky=tk.W)
-unused_loottable_label = ttk.Label(find_unused_frame, text="...", foreground="blue")
-unused_loottable_label.grid(row=3, column=0, sticky=tk.W)
+ttk.Label(find_unused_frame, text="Unused Loot Table IDs:").grid(row=1, column=0, sticky=tk.E)
+unused_loottable_label = ttk.Label(find_unused_frame, text="...")
+unused_loottable_label.grid(row=1, column=1, columnspan=2, pady=5, padx=5, sticky=tk.W)
 
-ttk.Label(find_unused_frame, text="Unused Lootdrop IDs:").grid(row=4, column=0, sticky=tk.W)
-unused_lootdrop_label = ttk.Label(find_unused_frame, text="...", foreground="blue")
-unused_lootdrop_label.grid(row=5, column=0, sticky=tk.W)
+ttk.Label(find_unused_frame, text="Unused Lootdrop IDs:").grid(row=2, column=0, sticky=tk.E)
+unused_lootdrop_label = ttk.Label(find_unused_frame, text="...")
+unused_lootdrop_label.grid(row=2, column=1, columnspan=2, pady=5, padx=5, sticky=tk.W)
 
 # Create New Loottable AND Lootdrop with first available unused values.
-add_lootdrop_to_loottable_button = ttk.Button(find_unused_frame, text="Create new Loot Table w/ unused values for table and drop.", command=add_lootdrop_to_loottable)
-add_lootdrop_to_loottable_button.grid(row=6, column=0, pady=5)
+add_lootdrop_to_loottable_button = ttk.Button(find_unused_frame, text="Create", command=add_lootdrop_to_loottable)
+add_lootdrop_to_loottable_button.grid(row=6, column=0, pady=5, padx=5, sticky=tk.E)
 
 #
 ###END UNUSED IDS LOOKUP FRAME###
 
-###BEGIN UTILITIES FRAME###
+
+###BEGIN IMAGES FRAME###
 #
+image_frame = ttk.Frame(top_root, relief=tk.SUNKEN, borderwidth=2)
+image_frame.grid(row=0, column=2, padx=5, pady=5, sticky="nsew")
 
-utility_frame = ttk.Frame(top_root, relief=tk.SUNKEN, borderwidth=2)
-utility_frame.grid(row=0, column=2, padx=10, pady=10, sticky="nsew")
+backingimage2 = Image.open("images/other/default.jpg")  # Replace with your image path
+bg2_image = ImageTk.PhotoImage(backingimage2)
 
-ttk.Label(utility_frame, text="Utilities", font=("Arial", 12, "bold")).grid(row=0, column=0, pady=5)
+canvas = tk.Canvas(image_frame, width=bg2_image.width(), height=bg2_image.height(), highlightthickness=0)
+canvas.grid(row=0, column=0, sticky="nsew")
+canvas.create_image(0, 0, anchor="nw", image=bg2_image)
 
-# Lookup Item by ID Button
-lookup_item_button = ttk.Button(utility_frame, text="Lookup Item by ID", command=lookup_item_by_id)
-lookup_item_button.grid(row=1, column=0, pady=5)
+
+
+backingimage = Image.open("images/other/itemback.png")  # Replace with your image path
+bg_image = ImageTk.PhotoImage(backingimage)
+
+item_frame = ttk.Frame(top_root, relief=tk.SUNKEN, borderwidth=2)
+item_frame.grid(row=0, column=3, sticky="nsew", padx=5, pady=5)
+
+canvas = tk.Canvas(item_frame, width=bg_image.width(), height=bg_image.height(), highlightthickness=0)
+canvas.grid(row=0, column=0, sticky="nsew")
+canvas.create_image(0, 0, anchor="nw", image=bg_image)
 
 #
-###END UTILITIES FRAME###
+###END IMAGES FRAME###
 #
 ###END TOP ROOT FRAME###
 #
@@ -1345,8 +1843,8 @@ lookup_item_button.grid(row=1, column=0, pady=5)
 ## Middle Root Frame: Three Sub-Frames -> Loot Table (loot_tree_frame), Loot Mod (loot_mod_frame) , and Loot Drop (loot_tree2_frame)
 #
 
-middle_root_frame = ttk.Frame(root, relief=tk.SUNKEN, borderwidth=2)
-middle_root_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
+middle_root_frame = ttk.Frame(root, relief=tk.SUNKEN, borderwidth=1)
+middle_root_frame.grid(row=1, column=0, padx=5, pady=5, sticky="w")
 
 ###BEGIN LOOT TABLE FRAME###
 #
@@ -1354,21 +1852,20 @@ middle_root_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
 # Define the variables
 loot_id_var = tk.StringVar(value="Loot Table ID: ")
 
-
 loottable_frame = ttk.Frame(middle_root_frame)
-loottable_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=10)
+loottable_frame.grid(row=0, column=0, padx=5, pady=5)
 
 loottable_mod_frame = ttk.Frame(loottable_frame, relief=tk.SUNKEN, borderwidth=2)
-loottable_mod_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=10)
+loottable_mod_frame.grid(row=0, column=0, sticky="w", pady=5)
 
-ttk.Label(loottable_mod_frame, text="Loot Table ID --> ",textvariable=loot_id_var, font=("Arial", 12, "bold")).grid(row=0, sticky="n", pady=7, columnspan=2)
+ttk.Label(loottable_mod_frame,textvariable=loot_id_var, font=("Arial", 12, "bold")).grid(row=0, sticky="n", pady=5, columnspan=2)
 
 ttk.Label(loottable_mod_frame, text="Loot Table Name:").grid(row=1, column=0, sticky="w")
 loottable_name_entry = ttk.Entry(loottable_mod_frame, width=20)
 loottable_name_entry.grid(row=1, column=1, padx=5)
 ttk.Label(loottable_mod_frame, text="Avg Coin:").grid(row=1, column=2, sticky="w")
 avgcoin_entry = ttk.Entry(loottable_mod_frame, width=8)
-avgcoin_entry.grid(row=1, column=3, padx=5, sticky="w")
+avgcoin_entry.grid(row=1, column=3, padx=5, pady=3, sticky="w")
 
 ttk.Label(loottable_mod_frame, text="Min Cash:").grid(row=2, column=0, sticky="w")
 mincash_entry = ttk.Entry(loottable_mod_frame, width=5)
@@ -1376,33 +1873,47 @@ mincash_entry.grid(row=2, column=1, padx=5, sticky="w")
 
 ttk.Label(loottable_mod_frame, text="Max Cash:").grid(row=2, column=2, sticky="w")
 maxcash_entry = ttk.Entry(loottable_mod_frame, width=8)
-maxcash_entry.grid(row=2, column=3, padx=5, sticky="w")
+maxcash_entry.grid(row=2, column=3, padx=5, pady=3, sticky="w")
 
-ttk.Label(loottable_mod_frame, text="Min Expansion:").grid(row=4, column=0, sticky="w")
+ttk.Label(loottable_mod_frame, text="Min Xpac:").grid(row=3, column=0, sticky="w")
 minexpac_entry = ttk.Entry(loottable_mod_frame, width=5)
-minexpac_entry.grid(row=4, column=1, padx=5, sticky="w")
+minexpac_entry.grid(row=3, column=1, padx=5, sticky="w")
 
-ttk.Label(loottable_mod_frame, text="Max Expansion:").grid(row=4, column=2, sticky="w")
+ttk.Label(loottable_mod_frame, text="Max Xpac:").grid(row=3, column=2, sticky="w")
 maxexpac_entry = ttk.Entry(loottable_mod_frame, width=5)
-maxexpac_entry.grid(row=4, column=3, padx=5, sticky="w")
+maxexpac_entry.grid(row=3, column=3, padx=5, pady=3, sticky="w")
 
-update_cash_button = ttk.Button(loottable_mod_frame, text="Update Loot Table Entries", command=update_loottable)
-update_cash_button.grid(row=5, column=0, pady=5, columnspan=2)
+ttk.Label(loottable_mod_frame, text="Update Changes").grid(row=1, column=4, padx=17, sticky="nsew")
 
-add_new_lootdrop_button = ttk.Button(loottable_mod_frame, text="Add New Lootdrop to Current Table", command=add_new_lootdrop)
-add_new_lootdrop_button.grid(row=5, column=2, padx=5, pady=5, columnspan=2)
+update_cash_button = ttk.Button(loottable_mod_frame, text="Update", command=update_loottable)
+update_cash_button.grid(row=2, column=4, padx=25, pady=3, sticky="n",rowspan=2)
+
+loottable_mod_frame2 = ttk.Frame(loottable_frame, relief=tk.SUNKEN, borderwidth=2)
+loottable_mod_frame2.grid(row=1, column=0, sticky="w", pady=5)
+
+add_new_lootdrop_button = ttk.Button(loottable_mod_frame2, text="Create Lootdrop & Add", command=add_new_lootdrop)
+add_new_lootdrop_button.grid(row=0, column=0, padx=3)
+
+remove_button = ttk.Button(loottable_mod_frame2, text="Remove Selected Lootdrop", command=remove_selected_lootdrop)
+remove_button.grid(row=0, column=2, padx=3)
+
+add_existing_lootdrop_button = ttk.Button(loottable_mod_frame2, text="Add Existing Lootdrop ID:", command=add_existing_lootdrop_to_loottable)
+add_existing_lootdrop_button.grid(row=0, column=3, pady=5, padx=3)
+
+lootdrop_id_entry = ttk.Entry(loottable_mod_frame2, width=10)
+lootdrop_id_entry.grid(row=0, column=4, pady=5, padx=2)
 
 # LOOT TABLE TREE SECTION
 
 loottable_tree_frame = ttk.Frame(loottable_frame, relief=tk.SUNKEN, borderwidth=2)
-loottable_tree_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+loottable_tree_frame.grid(row=2, column=0, sticky="w", pady=5)
 ttk.Label(loottable_tree_frame, text="Loot Table Entries", font=("Arial", 12, "bold")).grid(row=0, column=0, sticky="w")
 
-loot_tree = ttk.Treeview(loottable_tree_frame, columns=("LootDrop ID", "LootDrop Name", "Multiplier", "MinDrop", "DropLimit", "Probability"), show="headings")
+loot_tree = ttk.Treeview(loottable_tree_frame, height=6, columns=("LootDrop ID", "LootDrop Name", "Multiplier", "MinDrop", "DropLimit", "Probability"), show="headings")
 for col in loot_tree["columns"]:
     loot_tree.heading(col, text=col)
     loot_tree.column(col, width=100, stretch=True)
-loot_tree.grid(row=1, column=0, sticky="nsew", columnspan=4)
+loot_tree.grid(row=1, column=0, sticky="w", pady=5)
 
 # Set column widths and stretch behavior
 loot_tree.column("LootDrop ID", width=80, stretch=False)
@@ -1421,58 +1932,64 @@ loot_tree.column("Probability", width=69, stretch=False)
 # LOOT DROP TREE SECTION
 
 lootdrop_frame = ttk.Frame(middle_root_frame)
-lootdrop_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=10)
+lootdrop_frame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
 
 loot_tree2_frame = ttk.Frame(lootdrop_frame, relief=tk.SUNKEN, borderwidth=2)
-loot_tree2_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=10, columnspan=2)
+loot_tree2_frame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5, columnspan=2)
 
 ttk.Label(loot_tree2_frame, text="Loot Drop Entries", font=("Arial", 12, "bold")).grid(row=0, column=0, sticky="w")
-loot_tree2 = ttk.Treeview(loot_tree2_frame, columns=("Item ID", "Item Name", "Charges", "Equip Item", "Chance", 
-                                                     "Trivial Min Level", "Trivial Max Level", "Multiplier", 
-                                                     "NPC Min Level", "NPC Max Level", "Min Expansion", "Max Expansion"), show="headings")
+loot_tree2 = ttk.Treeview(loot_tree2_frame, columns=("Item ID", "Item Name", "Charges", "Equip", "Chance", 
+                                                     "Triv Min Lvl", "Triv Max Lvl", "Multiplier", 
+                                                     "NPC Min Lvl", "NPC Max Lvl", "Min Xpac", "Max Xpac"), show="headings")
 for col in loot_tree2["columns"]:
     loot_tree2.heading(col, text=col)
     loot_tree2.column(col, width=100, stretch=True)
 loot_tree2.grid(row=1, column=0, sticky="nsew", columnspan=2)
 
 # Set column widths and stretch behavior
-loot_tree2.column("Item ID", width=60, stretch=False)
-loot_tree2.column("Item Name", width=150, stretch=False)
-loot_tree2.column("Charges", width=55, stretch=False)
-loot_tree2.column("Equip Item", width=70, stretch=False)
-loot_tree2.column("Chance", width=55, stretch=False)
-loot_tree2.column("Trivial Min Level", width=95, stretch=False)
-loot_tree2.column("Trivial Max Level", width=95, stretch=False)
-loot_tree2.column("Multiplier", width=70, stretch=False)
-loot_tree2.column("NPC Min Level", width=85, stretch=False)
-loot_tree2.column("NPC Max Level", width=85, stretch=False)
-loot_tree2.column("Min Expansion", width=85, stretch=False)
-loot_tree2.column("Max Expansion", width=85, stretch=False)
+loot_tree2.column("Item ID", width=55, stretch=False)
+loot_tree2.column("Item Name", width=130, stretch=False)
+loot_tree2.column("Charges", width=40, stretch=False)
+loot_tree2.column("Equip", width=40, stretch=False)
+loot_tree2.column("Chance", width=40, stretch=False)
+loot_tree2.column("Triv Min Lvl", width=75, stretch=False)
+loot_tree2.column("Triv Max Lvl", width=75, stretch=False)
+loot_tree2.column("Multiplier", width=65, stretch=False)
+loot_tree2.column("NPC Min Lvl", width=75, stretch=False)
+loot_tree2.column("NPC Max Lvl", width=75, stretch=False)
+loot_tree2.column("Min Xpac", width=65, stretch=False)
+loot_tree2.column("Max Xpac", width=65, stretch=False)
 
 # LOOT DROP MOD SECTION
 
 lootdrop_mod_frame = ttk.Frame(lootdrop_frame, relief=tk.SUNKEN, borderwidth=2)
-lootdrop_mod_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=10)
+lootdrop_mod_frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+
+remove_item_button = ttk.Button(lootdrop_mod_frame, text="Remove Selected Item from Lootdrop", command=remove_item_from_lootdrop)
+remove_item_button.grid(row=0, column=1, pady=5, columnspan=2, padx=10)
 
 # Add Item to Lootdrop Button
 add_item_to_lootdrop_button = ttk.Button(lootdrop_mod_frame, text="Add Random Item ID to selected Lootdrop", command=add_item_to_lootdrop)
-add_item_to_lootdrop_button.grid(row=1, column=0, pady=5)
+add_item_to_lootdrop_button.grid(row=0, column=0, pady=5, padx=5)
+
+# Lookup Item by ID Button
+lookup_item_button = ttk.Button(lootdrop_mod_frame, text="Lookup Item by ID", command=lookup_item_by_id)
+lookup_item_button.grid(row=0, column=3, pady=5, padx=3)
 
 
 # Add a label for the text entry
-ttk.Label(lootdrop_mod_frame, text="------------> Item ID:").grid(row=2, column=0, padx=5, pady=5, sticky="e")
+ttk.Label(lootdrop_mod_frame, text="------------> Item ID:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
 
 # Add a text entry box
 item_id_entry = ttk.Entry(lootdrop_mod_frame)
-item_id_entry.grid(row=2, column=1, padx=5, pady=5)
+item_id_entry.grid(row=1, column=1, padx=2, pady=5, sticky="w")
 
 # Add a button to add the specific item
-add_specific_item_button = ttk.Button(
-    lootdrop_mod_frame,
-    text="Add Specific Item",
-    command=add_specific_item_to_lootdrop
-)
-add_specific_item_button.grid(row=2, column=0, padx=5, pady=5, sticky="w")
+add_specific_item_button = ttk.Button(lootdrop_mod_frame,text="Add Specific Item",command=add_specific_item_to_lootdrop)
+add_specific_item_button.grid(row=1, column=0, padx=5, pady=5, sticky="w")
+
+notes_button = ttk.Button(lootdrop_mod_frame, text="Notes", command=open_notes_window)
+notes_button.grid(row=1, column=2,pady=5)
 
 #
 ###END Loot Drop FRAME###
@@ -1484,19 +2001,18 @@ add_specific_item_button.grid(row=2, column=0, padx=5, pady=5, sticky="w")
 ## START BOTTOM SECTION: NPC Tree ##
 #
 
-bottom_frame = ttk.Frame(root)
-bottom_frame.grid(row=3, column=0, sticky="nsew", padx=10, pady=10)
+bottom_frame = ttk.Frame(root, relief=tk.SUNKEN, borderwidth=2)
+bottom_frame.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
 
-npc_tree_frame = ttk.Frame(bottom_frame, relief=tk.SUNKEN, borderwidth=2)
+npc_tree_frame = ttk.Frame(bottom_frame)
 npc_tree_frame.grid(row=0, column=0, sticky="nsew")
 
 ttk.Label(npc_tree_frame, text="  NPC List and Editor", font=("Arial", 12, "bold")).grid(row=0, column=0, sticky="w")
 npc_tree = ttk.Treeview(npc_tree_frame, columns=("ID", "Name", "Lvl", "Race", "Class", "Body", "HP", "Mana",
                                                "Gender", "Texture", "Helmtexture", "Size", "Loottable ID", "Spells ID", "Faction ID",
                                                "Mindmg", "Maxdmg", "Npcspecialattks", "Special Abilities", "MR", "CR", "DR", "FR", "PR", "AC",
-                                               "Attack Speed", "Attack Delay", "STR", "STA", "DEX", "AGI", "_INT", "WIS", "CHA", "ATK", "Accuracy",
-                                               "Avoidance", "Slow Mitigation", "Maxlevel", "Private Corpse",
-                                               "Skip Global Loot", "Always Aggro", "Exp Mod"), show="headings")
+                                               "Attack Delay", "STR", "STA", "DEX", "AGI", "_INT", "WIS", "Maxlevel",
+                                               "Skip Global Loot", "Exp Mod"), show="headings")
 
 # Define column widths in a dictionary
 column_widths = {
@@ -1517,15 +2033,14 @@ column_widths = {
     "Faction ID": 65,
     "Mindmg": 45,
     "Maxdmg": 45,
-    "Npcspecialattks": 65,
-    "Special Abilities": 65,
+    "Npcspecialattks": 35,
+    "Special Abilities": 35,
     "MR": 25,
     "CR": 25,
     "DR": 25,
     "FR": 25,
     "PR": 25,
     "AC": 25,
-    "Attack Speed": 45,
     "Attack Delay": 45,
     "STR": 30,
     "STA": 30,
@@ -1533,15 +2048,8 @@ column_widths = {
     "AGI": 30,
     "_INT": 30,
     "WIS": 30,
-    "CHA": 30,
-    "ATK": 30,
-    "Accuracy": 15,
-    "Avoidance": 15,
-    "Slow Mitigation": 15,
     "Maxlevel": 15,
-    "Private Corpse": 15,
     "Skip Global Loot": 15,
-    "Always Aggro": 15,
     "Exp Mod": 15
 }
 
@@ -1551,6 +2059,11 @@ for col, width in column_widths.items():
     npc_tree.heading(col, text=col)
 
 npc_tree.grid(row=1, column=0, sticky="nsew")
+
+# Add and Define status_var
+status_var = tk.StringVar(value="Ready")
+status_bar = ttk.Label(root, textvariable=status_var)
+status_bar.grid(row=4, column=0, columnspan=3)  # Use grid for status_bar
 
 ## END BOTTOM SECTION ##
 
@@ -1565,5 +2078,8 @@ npc_tree.bind("<Double-1>", on_npc_edit)
 loot_tree.bind("<<TreeviewSelect>>", on_lootdrop_select)
 loot_tree.bind("<Double-1>", on_loottable_edit)
 loot_tree2.bind("<Double-1>", on_lootdrop_edit)
+loot_tree2.bind('<<TreeviewSelect>>', on_item_select)
 
+create_db()
+find_unused_ids()
 root.mainloop()
